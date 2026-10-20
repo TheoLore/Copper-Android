@@ -9,6 +9,7 @@ import static git.artdeell.mojo.game.renderer.def.Renderers.MESA_RENDERER_EXT;
 import static git.artdeell.mojo.game.renderer.def.Renderers.MOBILEGLUES_RENDERER;
 import static git.artdeell.mojo.game.renderer.def.Renderers.SFPEW_RENDERER;
 import static git.artdeell.mojo.game.renderer.def.Renderers.ZINK_RENDERER;
+import static git.artdeell.mojo.game.renderer.def.Renderers.PANVK_RENDERER;
 
 import android.content.Context;
 import android.content.res.Resources;
@@ -30,19 +31,11 @@ public class RendererCache {
         this.rendererDisplayNames = rendererDisplayNames;
     }
 
-    /**
-     * Return a list of renderers compatible with the current device
-     * Don't forget to clean the cache when the list isn't needed anymore
-     *
-     * @param context application context
-     * @return RenderersList containing all compatible renderers
-     */
     public static RendererCache getCompatibleRenderers(Context context) {
         if (sCompatibleRenderers != null) return sCompatibleRenderers;
         Resources resources = context.getResources();
-        // This is the list that controls em all!
         String[] renderers = {
-                GL4ES_RENDERER, ZINK_RENDERER, LTW_RENDERER, MOBILEGLUES_RENDERER, SFPEW_RENDERER, FREEDRENO_RENDERER, MESA_RENDERER, MESA_RENDERER_EXT, LEGACYZINK_RENDERER
+                GL4ES_RENDERER, ZINK_RENDERER, PANVK_RENDERER, LTW_RENDERER, MOBILEGLUES_RENDERER, SFPEW_RENDERER, FREEDRENO_RENDERER, MESA_RENDERER, MESA_RENDERER_EXT, LEGACYZINK_RENDERER
         };
         ArrayList<String> rendererIds = new ArrayList<>(renderers.length);
         ArrayList<String> rendererNames = new ArrayList<>(rendererIds);
@@ -58,9 +51,6 @@ public class RendererCache {
         return (sCompatibleRenderers = new RendererCache(rendererIds, rendererNames.toArray(new String[0])));
     }
 
-    /**
-     * Destroy compatible renderers cache
-     */
     public static void releaseRendererCache() {
         sCompatibleRenderers.rendererIds.clear();
         sCompatibleRenderers = null;
