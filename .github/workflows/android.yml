@@ -22,16 +22,29 @@ jobs:
         with:
           submodules: false
 
-      - name: Init submodules (robust PanVK fork)
+      - name: Init submodules + PanVK loader overlay
         run: |
+          set -e
           git submodule sync || true
-          # Clone the known-good submodules
+          # Original working submodules
           git submodule update --init --force --depth=1 NoBlocklist glfw sdl || true
-          # Force our PanVK-enabled mojoexec (ignore recorded SHA mismatch)
+          # Original mojoexec (Gradle structure intact)
           rm -rf mojoexec
-          git clone --depth=1 https://github.com/TheoLore/mojoexec.git mojoexec
+          git clone --depth=1 https://github.com/MojoLauncher/mojoexec.git mojoexec
+          # Overlay only our PanVK-enabled sources
+          curl -fL -o mojoexec/vulkan_loader.c \
+            https://raw.githubusercontent.com/TheoLore/mojoexec/main/vulkan_loader.c
+          curl -fL -o mojoexec/jni_bindings/src/main/java/git/artdeell/mojoexec/MojoExec.java \
+            https://raw.githubusercontent.com/TheoLore/mojoexec/main/jni_bindings/src/main/java/git/artdeell/mojoexec/MojoExec.java
+          # Ensure ENABLE_PANVK_LOADER is defined in CMakeLists
+          if ! grep -q ENABLE_PANVK_LOADER mojoexec/CMakeLists.txt; then
+            sed -i 's/ENABLE_TURNIP_LOADER/ENABLE_TURNIP_LOADER)\n    target_compile_definitions(mojoexec PRIVATE ENABLE_PANVK_LOADER/' mojoexec/CMakeLists.txt || true
+            # safer: append after the TURNIP line
+            sed -i '/ENABLE_TURNIP_LOADER/a\    target_compile_definitions(mojoexec PRIVATE ENABLE_PANVK_LOADER)' mojoexec/CMakeLists.txt || true
+          fi
+          echo "=== mojoexec overlay done ==="
           ls -la mojoexec/
-          echo "mojoexec HEAD: $(cd mojoexec && git rev-parse HEAD)"
+          head -5 mojoexec/vulkan_loader.c
 
       - name: Get LTW
         uses: dawidd6/action-download-artifact@v6
@@ -56,19 +69,16 @@ jobs:
       - name: Get PanVK (Mali G52 jm-v7)
         continue-on-error: true
         run: |
-          mkdir -p app_mojo/libs/panvk app_mojo/src/main/assets/components/panvk
-          # Latest RC4 with experimental jm-v7 Bifrost support
+          mkdir -p app_mojo/libs/panvk app_mojo/src/main/assets/components/panvk app_mojo/src/main/assets/runtime_mod
           URL="https://github.com/zenithblue-oss/panvk-kbase-android/releases/download/panvk-kbase-v0.1.0-rc4/libvulkan_panfrost-android-aarch64.so"
           curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so "$URL" || \
             curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so \
               "https://github.com/zenithblue-oss/panvk-kbase-android/releases/download/panvk-kbase-v0.1.0-rc4-lowmem/libvulkan_panfrost-android-aarch64.so" || true
           if [ -f app_mojo/libs/panvk/libvulkan_panfrost.so ]; then
             cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/components/panvk/
+            cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/runtime_mod/
             ls -la app_mojo/libs/panvk/
             echo "PanVK driver downloaded successfully"
-            # Also place a copy where MOD_ANDROID_RUNTIME style loaders look
-            mkdir -p app_mojo/src/main/assets/runtime_mod
-            cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/runtime_mod/
           else
             echo "WARNING: PanVK .so download failed"
           fi
@@ -84,7 +94,7 @@ jobs:
           java-version: '17'
       - name: Create out directory
         run: mkdir out
-      # Release APKs are built on every branch of the main repo (not for pull requests, they don't get secrets)
+
       - name: Decode release keystore
         if: github.repository_owner == 'CopperLauncher' && github.event_name != 'pull_request'
         run: |
@@ -92,7 +102,6 @@ jobs:
             echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > app_mojo/mojo_release_next.jks
           fi
 
-      # The Google Play upload key is only needed where the .aab is published
       - name: Decode upload keystore
         if: github.repository_owner == 'CopperLauncher' && (github.ref == 'refs/heads/v3_openjdk' || startsWith(github.ref, 'refs/tags/v'))
         run: |
@@ -108,7 +117,6 @@ jobs:
 
       - name: Build Debug .apk
         run: |
-          # Build the launcher
           gradle :app_mojo:assembleFullDebug
           mv app_mojo/build/outputs/apk/full/debug/app_mojo-full-debug.apk out/app-debug-full.apk
 
@@ -116,15 +124,17 @@ jobs:
         run: |
           gradle :app_mojo:assembleNoruntimeDebug
           mv app_mojo/build/outputs/apk/noruntime/debug/app_mojo-noruntime-debug.apk out/app-debug-noruntime.apk
+
       - name: Build Release .apk
         if: github.repository_owner == 'CopperLauncher' && github.event_name != 'pull_request'
         run: |
           gradle :app_mojo:assembleFullPubRelease
           mv app_mojo/build/outputs/apk/full/pubRelease/app_mojo-full-pubRelease.apk out/Copper-release.apk
+
       - name: Gen md5sums
         run: |
-          md5sum out/app-debug-full.apk > out/app-debug-full.md5
-          md5sum out/app-debug-noruntime.apk > out/app-debug-noruntime.md5
+          md5sum out/app-debug-full.apk > out/app-debug-full.md5 || true
+          md5sum out/app-debug-noruntime.apk > out/app-debug-noruntime.md5 || true
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -152,7 +162,6 @@ jobs:
           name: app-release-aab
           path: out/app-gplay.aab
 
-      # Only v3_openjdk publishes the nightly release, other branches just upload the APK as an artifact
       - name: Release Nightly APK
         if: github.repository_owner == 'CopperLauncher' && github.ref == 'refs/heads/v3_openjdk'
         uses: softprops/action-gh-release@v3
