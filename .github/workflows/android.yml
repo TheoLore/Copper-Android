@@ -29,7 +29,6 @@ jobs:
           git submodule update --init --force --depth=1 NoBlocklist glfw sdl || true
           rm -rf mojoexec
           git clone --depth=1 https://github.com/MojoLauncher/mojoexec.git mojoexec
-          # Overlay PanVK-enabled sources (keep original Gradle structure)
           curl -fL -o mojoexec/vulkan_loader.c \
             https://raw.githubusercontent.com/TheoLore/mojoexec/main/vulkan_loader.c
           curl -fL -o mojoexec/CMakeLists.txt \
@@ -38,7 +37,6 @@ jobs:
             https://raw.githubusercontent.com/TheoLore/mojoexec/main/jni_bindings/src/main/java/git/artdeell/mojoexec/MojoExec.java
           echo "=== mojoexec overlay done ==="
           grep -n ENABLE_PANVK mojoexec/CMakeLists.txt || echo "WARN: ENABLE_PANVK not found"
-          head -3 mojoexec/vulkan_loader.c
 
       - name: Get LTW
         uses: dawidd6/action-download-artifact@v6
@@ -63,16 +61,32 @@ jobs:
       - name: Get PanVK driver
         continue-on-error: true
         run: |
-          mkdir -p app_mojo/libs/panvk app_mojo/src/main/assets/components/panvk app_mojo/src/main/assets/runtime_mod
-          URL="https://github.com/zenithblue-oss/panvk-kbase-android/releases/download/panvk-kbase-v0.1.0-rc4/libvulkan_panfrost-android-aarch64.so"
-          curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so "$URL" || \
-            curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so \
-              "https://github.com/zenithblue-oss/panvk-kbase-android/releases/download/panvk-kbase-v0.1.0-rc4-lowmem/libvulkan_panfrost-android-aarch64.so" || true
+          set -e
+          mkdir -p \
+            app_mojo/libs/panvk \
+            app_mojo/src/main/jniLibs/arm64-v8a \
+            app_mojo/src/main/assets/components/panvk \
+            app_mojo/src/main/assets/runtime_mod
+          BASE="https://github.com/zenithblue-oss/panvk-kbase-android/releases/download"
+          # Prefer RC4 (has experimental jm-v7 for Mali-G52); lowmem is fallback
+          for URL in \
+            "$BASE/panvk-kbase-v0.1.0-rc4/libvulkan_panfrost-android-aarch64.so" \
+            "$BASE/panvk-kbase-v0.1.0-rc4-lowmem/libvulkan_panfrost-android-aarch64.so"
+          do
+            if curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so "$URL"; then
+              echo "Downloaded: $URL"
+              break
+            fi
+          done
           if [ -f app_mojo/libs/panvk/libvulkan_panfrost.so ]; then
-            cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/components/panvk/
-            cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/runtime_mod/
+            # Packaged native lib (shows under nativeLibraryDir / arm64-v8a)
+            cp -f app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/jniLibs/arm64-v8a/
+            # Assets fallback for extraction
+            cp -f app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/components/panvk/
+            cp -f app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/runtime_mod/
+            ls -la app_mojo/src/main/jniLibs/arm64-v8a/
             ls -la app_mojo/libs/panvk/
-            echo "PanVK driver downloaded successfully"
+            echo "PanVK driver packaged into jniLibs/arm64-v8a + assets"
           else
             echo "WARNING: PanVK .so download failed"
           fi
