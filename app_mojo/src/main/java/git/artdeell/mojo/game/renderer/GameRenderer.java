@@ -11,17 +11,20 @@ import static git.artdeell.mojo.game.renderer.def.Renderers.SFPEW_RENDERER;
 import static git.artdeell.mojo.game.renderer.def.Renderers.ZINK_RENDERER;
 import static git.artdeell.mojo.game.renderer.def.Renderers.PANVK_RENDERER;
 
+import android.content.Context;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import git.artdeell.mojo.Logger;
+import git.artdeell.mojo.Tools;
 import git.artdeell.mojo.game.renderer.impl.GLESRenderSpec;
 import git.artdeell.mojo.game.renderer.impl.MesaRenderSpec;
 import git.artdeell.mojo.prefs.LauncherPreferences;
+
+import java.util.HashMap;
+import java.util.Map;
+
 import git.artdeell.mojoexec.MojoExec;
 
 /*
@@ -51,9 +54,13 @@ public class GameRenderer {
         if(this.currentRenderer == null) throw new IllegalStateException("Failed to create the current renderer!");
     }
 
+    /**
+     * Map renderer string to a known RenderSpec
+     */
     public static RenderSpec getKnownRenderer(String renderer) {
         switch (renderer) {
             case "opengles2_4":
+            case "opengles2_5":
             case GL4ES_RENDERER: return new GLESRenderSpec.GL4ESRenderSpec();
             case LTW_RENDERER: return new GLESRenderSpec.LTWRenderSpec();
             case ZINK_RENDERER: return new MesaRenderSpec.ZinkRenderSpec();
@@ -75,7 +82,7 @@ public class GameRenderer {
         MojoExec.setNativeLibraryDir(mainPath);
     }
 
-    public void setupEnvironment(android.content.Context context) throws ErrnoException {
+    public void setupEnvironment(Context context) throws ErrnoException {
         if(environment == null) {
             Log.w(TAG, "Tried to call setupEnvironment in already initialized environment");
             return;
@@ -119,8 +126,7 @@ public class GameRenderer {
     public void overrideVulkanDriver() {
         if(LauncherPreferences.PREF_FREEDRENO_SYSMEM) environment.put("TU_DEBUG", "sysmem");
         if(LauncherPreferences.PREF_UBWC_WORKAROUND) environment.put("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1");
-        // PanVK path sets its own flags in PanvkRenderSpec; Turnip only when not PanVK
-        if (Renderers.PANVK_RENDERER.equals(currentRenderer.tag())) {
+        if (currentRenderer != null && PANVK_RENDERER.equals(currentRenderer.tag())) {
             try {
                 MojoExec.setUsePanvk(true);
                 MojoExec.setUseTurnip(false);
