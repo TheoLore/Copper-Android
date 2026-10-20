@@ -60,7 +60,7 @@ jobs:
           name: mesa.aar
           path: app_mojo/libs
 
-      - name: Get PanVK (Mali G52 jm-v7)
+      - name: Get PanVK driver
         continue-on-error: true
         run: |
           mkdir -p app_mojo/libs/panvk app_mojo/src/main/assets/components/panvk app_mojo/src/main/assets/runtime_mod
