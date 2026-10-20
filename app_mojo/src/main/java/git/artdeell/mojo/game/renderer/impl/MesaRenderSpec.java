@@ -58,9 +58,6 @@ public class MesaRenderSpec implements RenderSpec {
         }
         public void setupEnvironment(Context context, Map<String, String> envMap) {
             envMap.put("MESA_LOADER_DRIVER_OVERRIDE", "zink");
-            // This is needed because mobile drivers often don't implement required features for zink
-            // hence making it fall back to OpenGL 2.1 and break the modern game completely
-            // We don't care much about passing CTS hence this is fine
             envMap.put("MESA_GLSL_VERSION_OVERRIDE", "460");
             envMap.put("MESA_GL_VERSION_OVERRIDE", "4.6");
             super.setupEnvironment(context, envMap);
@@ -91,8 +88,6 @@ public class MesaRenderSpec implements RenderSpec {
             if (LauncherPreferences.PREF_FREEDRENO_SYSMEM) envMap.put("FD_MESA_DEBUG", "sysmem");
             if(LauncherPreferences.PREF_UBWC_WORKAROUND) envMap.put("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1");
             envMap.put("MESA_LOADER_DRIVER_OVERRIDE", "kgsl");
-            // On Adreno 5XX and lower only Core 3.1 is exposed by default due to missing hardware extensions.
-            // 3.3 is required for modern games so let's force 3.3 if running on such GPU - it's known to be working.
             if (GpuUtils.getGlInfo().isAdreno500Lower()) {
                 envMap.put("MESA_GL_VERSION_OVERRIDE", "3.3");
                 envMap.put("MESA_GLSL_VERSION_OVERRIDE", "330");
@@ -161,6 +156,67 @@ public class MesaRenderSpec implements RenderSpec {
         }
         public String library() {
             return "libEGL_legacy.so";
+        }
+    }
+
+    /**
+     * Zink over PanVK (Mesa Panfrost via mali_kbase).
+     * Any Mali that exposes /dev/mali0 (Bifrost/Valhall JM and CSF) — not limited to G52.
+     */
+    public static class PanvkRenderSpec extends ZinkRenderSpec {
+        public String name() {
+            return "Zink (PanVK)";
+        }
+        public String tag() {
+            return Renderers.PANVK_RENDERER;
+        }
+        public int displayName() {
+            return R.string.mcl_setting_renderer_vulkan_panvk;
+        }
+        public boolean compatibleDevice(Context context) {
+            return hasMesa()
+                    && GpuUtils.checkVulkanSupport(context.getPackageManager())
+                    && GpuUtils.getGlInfo().isArm();
+        }
+        public void setupEnvironment(Context context, Map<String, String> envMap) {
+            File runtimeDir = new File(context.getCacheDir(), "app_runtime_mod");
+            //noinspection ResultOfMethodCallIgnored
+            runtimeDir.mkdirs();
+            File so = new File(runtimeDir, "libvulkan_panfrost.so");
+            try {
+                if (!so.exists() || so.length() < 1024) {
+                    try {
+                        Tools.copyAssetFile(context, "components/panvk/libvulkan_panfrost.so",
+                                runtimeDir.getAbsolutePath(), true);
+                    } catch (Exception e1) {
+                        try {
+                            Tools.copyAssetFile(context, "runtime_mod/libvulkan_panfrost.so",
+                                    runtimeDir.getAbsolutePath(), true);
+                        } catch (Exception e2) {
+                            android.util.Log.e("PanVK", "Failed to extract libvulkan_panfrost.so", e2);
+                        }
+                    }
+                    File alt = new File(runtimeDir, "libvulkan_panfrost-android-aarch64.so");
+                    if (!so.exists() && alt.exists()) {
+                        //noinspection ResultOfMethodCallIgnored
+                        alt.renameTo(so);
+                    }
+                }
+            } catch (Throwable t) {
+                android.util.Log.e("PanVK", "extract error", t);
+            }
+            envMap.put("MOD_ANDROID_RUNTIME", runtimeDir.getAbsolutePath());
+            super.setupEnvironment(context, envMap);
+        }
+        public boolean setupRenderer() {
+            try {
+                MojoExec.setUsePanvk(true);
+                MojoExec.setUseTurnip(false);
+            } catch (Throwable t) {
+                android.util.Log.w("PanVK", "setUsePanvk missing", t);
+            }
+            MojoExec.preloadVulkan();
+            return super.setupRenderer();
         }
     }
 }
