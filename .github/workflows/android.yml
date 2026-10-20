@@ -26,25 +26,19 @@ jobs:
         run: |
           set -e
           git submodule sync || true
-          # Original working submodules
           git submodule update --init --force --depth=1 NoBlocklist glfw sdl || true
-          # Original mojoexec (Gradle structure intact)
           rm -rf mojoexec
           git clone --depth=1 https://github.com/MojoLauncher/mojoexec.git mojoexec
-          # Overlay only our PanVK-enabled sources
+          # Overlay PanVK-enabled sources (keep original Gradle structure)
           curl -fL -o mojoexec/vulkan_loader.c \
             https://raw.githubusercontent.com/TheoLore/mojoexec/main/vulkan_loader.c
+          curl -fL -o mojoexec/CMakeLists.txt \
+            https://raw.githubusercontent.com/TheoLore/mojoexec/main/CMakeLists.txt
           curl -fL -o mojoexec/jni_bindings/src/main/java/git/artdeell/mojoexec/MojoExec.java \
             https://raw.githubusercontent.com/TheoLore/mojoexec/main/jni_bindings/src/main/java/git/artdeell/mojoexec/MojoExec.java
-          # Ensure ENABLE_PANVK_LOADER is defined in CMakeLists
-          if ! grep -q ENABLE_PANVK_LOADER mojoexec/CMakeLists.txt; then
-            sed -i 's/ENABLE_TURNIP_LOADER/ENABLE_TURNIP_LOADER)\n    target_compile_definitions(mojoexec PRIVATE ENABLE_PANVK_LOADER/' mojoexec/CMakeLists.txt || true
-            # safer: append after the TURNIP line
-            sed -i '/ENABLE_TURNIP_LOADER/a\    target_compile_definitions(mojoexec PRIVATE ENABLE_PANVK_LOADER)' mojoexec/CMakeLists.txt || true
-          fi
           echo "=== mojoexec overlay done ==="
-          ls -la mojoexec/
-          head -5 mojoexec/vulkan_loader.c
+          grep -n ENABLE_PANVK mojoexec/CMakeLists.txt || echo "WARN: ENABLE_PANVK not found"
+          head -3 mojoexec/vulkan_loader.c
 
       - name: Get LTW
         uses: dawidd6/action-download-artifact@v6
