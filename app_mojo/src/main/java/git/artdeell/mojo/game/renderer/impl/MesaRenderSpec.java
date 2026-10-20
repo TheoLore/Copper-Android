@@ -12,6 +12,8 @@ import git.artdeell.mojo.prefs.LauncherPreferences;
 import git.artdeell.mojo.utils.GpuUtils;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import git.artdeell.mojo.R;
@@ -160,8 +162,9 @@ public class MesaRenderSpec implements RenderSpec {
     }
 
     /**
-     * PanVK: load libvulkan_panfrost.so (mali_kbase) and use Mesa EGL for GL.
-     * Any Mali with /dev/mali0 — not limited to one GPU model.
+     * PanVK ICD (libvulkan_panfrost.so via mali_kbase).
+     * .so lives in jniLibs/arm64-v8a and/or is extracted to cache/app_runtime_mod.
+     * Loader finds it via VK_ICD_FILENAMES + absolute library_path in the ICD JSON.
      */
     public static class PanvkRenderSpec extends MesaRenderSpec {
         public String name() {
@@ -183,8 +186,21 @@ public class MesaRenderSpec implements RenderSpec {
             //noinspection ResultOfMethodCallIgnored
             runtimeDir.mkdirs();
             File so = new File(runtimeDir, "libvulkan_panfrost.so");
+
+            // Prefer copy from packaged native lib dir (jniLibs/arm64-v8a)
+            File nativeSo = new File(Tools.NATIVE_LIB_DIR, "libvulkan_panfrost.so");
             try {
-                if (!so.exists() || so.length() < 1024) {
+                if (nativeSo.exists() && nativeSo.length() > 1024) {
+                    if (!so.exists() || so.length() != nativeSo.length()) {
+                        try (java.io.InputStream in = new java.io.FileInputStream(nativeSo);
+                             FileOutputStream out = new FileOutputStream(so)) {
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                        }
+                        android.util.Log.i("PanVK", "Copied from nativeLibraryDir -> " + so.getAbsolutePath());
+                    }
+                } else if (!so.exists() || so.length() < 1024) {
                     try {
                         Tools.copyAssetFile(context, "components/panvk/libvulkan_panfrost.so",
                                 runtimeDir.getAbsolutePath(), true);
@@ -196,21 +212,50 @@ public class MesaRenderSpec implements RenderSpec {
                             android.util.Log.e("PanVK", "Failed to extract libvulkan_panfrost.so", e2);
                         }
                     }
-                    File alt = new File(runtimeDir, "libvulkan_panfrost-android-aarch64.so");
-                    if (!so.exists() && alt.exists()) {
-                        //noinspection ResultOfMethodCallIgnored
-                        alt.renameTo(so);
-                    }
                 }
             } catch (Throwable t) {
-                android.util.Log.e("PanVK", "extract error", t);
+                android.util.Log.e("PanVK", "extract/copy error", t);
             }
+
+            // Write ICD JSON with absolute path (required by Vulkan loader)
+            File icd = new File(runtimeDir, "panfrost_icd.json");
+            String soPath = so.exists() ? so.getAbsolutePath() : nativeSo.getAbsolutePath();
+            String icdJson = "{\n"
+                    + "  \"file_format_version\": \"1.0.0\",\n"
+                    + "  \"ICD\": {\n"
+                    + "    \"library_path\": \"" + soPath.replace("\\", "\\\\") + "\",\n"
+                    + "    \"api_version\": \"1.1.0\"\n"
+                    + "  }\n"
+                    + "}\n";
+            try (FileOutputStream fos = new FileOutputStream(icd)) {
+                fos.write(icdJson.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                android.util.Log.e("PanVK", "Failed to write ICD json", e);
+            }
+
             envMap.put("MOD_ANDROID_RUNTIME", runtimeDir.getAbsolutePath());
-            // Mesa needs a GL driver name; panvk is Vulkan-only so Mesa uses its GL-over-Vulkan path
+            envMap.put("VK_ICD_FILENAMES", icd.getAbsolutePath());
+            envMap.put("VK_DRIVER_FILES", icd.getAbsolutePath());
+            // Prefer our dir for dlopen of the ICD library
+            String ld = runtimeDir.getAbsolutePath();
+            if (Tools.NATIVE_LIB_DIR != null) ld = ld + ":" + Tools.NATIVE_LIB_DIR;
+            String oldLd = System.getenv("LD_LIBRARY_PATH");
+            if (oldLd != null && !oldLd.isEmpty()) ld = ld + ":" + oldLd;
+            envMap.put("LD_LIBRARY_PATH", ld);
+
+            // Mesa GL path over Vulkan ICD
             envMap.put("MESA_LOADER_DRIVER_OVERRIDE", "zink");
             envMap.put("MESA_GLSL_VERSION_OVERRIDE", "460");
             envMap.put("MESA_GL_VERSION_OVERRIDE", "4.6");
+            envMap.put("MESA_VK_VERSION_OVERRIDE", "1.1");
+            // G52 jm-v7 is experimental; some builds still gate on this
+            envMap.put("PAN_I_WANT_A_BROKEN_VULKAN_DRIVER", "1");
+            envMap.put("PANVK_DEBUG", "info");
             super.setupEnvironment(context, envMap);
+
+            android.util.Log.i("PanVK", "so=" + soPath + " exists=" + new File(soPath).exists()
+                    + " size=" + new File(soPath).length()
+                    + " ICD=" + icd.getAbsolutePath());
         }
         public boolean setupRenderer() {
             try {
@@ -219,8 +264,18 @@ public class MesaRenderSpec implements RenderSpec {
             } catch (Throwable t) {
                 android.util.Log.w("PanVK", "setUsePanvk missing", t);
             }
-            MojoExec.preloadVulkan();
-            return super.setupRenderer();
+            try {
+                MojoExec.preloadVulkan();
+            } catch (Throwable t) {
+                android.util.Log.e("PanVK", "preloadVulkan failed", t);
+                return false;
+            }
+            try {
+                return super.setupRenderer();
+            } catch (Throwable t) {
+                android.util.Log.e("PanVK", "prepareEgl failed", t);
+                return false;
+            }
         }
     }
 }
