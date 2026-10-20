@@ -42,6 +42,23 @@ jobs:
           name: mesa.aar
           path: app_mojo/libs
 
+      - name: Get PanVK (Mali G52 jm-v7)
+        continue-on-error: true
+        run: |
+          mkdir -p app_mojo/libs/panvk app_mojo/src/main/assets/components/panvk
+          # Latest RC4 with experimental jm-v7 Bifrost support
+          URL="https://github.com/zenithblue-oss/panvk-kbase-android/releases/download/panvk-kbase-v0.1.0-rc4/libvulkan_panfrost-android-aarch64.so"
+          curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so "$URL" || \
+            curl -fL -o app_mojo/libs/panvk/libvulkan_panfrost.so \
+              "https://github.com/zenithblue-oss/panvk-kbase-android/releases/download/panvk-kbase-v0.1.0-rc4-lowmem/libvulkan_panfrost-android-aarch64.so" || true
+          if [ -f app_mojo/libs/panvk/libvulkan_panfrost.so ]; then
+            cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/components/panvk/
+            ls -la app_mojo/libs/panvk/
+            echo "PanVK driver downloaded successfully"
+          else
+            echo "WARNING: PanVK .so download failed"
+          fi
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.14.5"
