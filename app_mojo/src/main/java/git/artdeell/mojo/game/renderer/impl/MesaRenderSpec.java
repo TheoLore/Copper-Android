@@ -160,12 +160,12 @@ public class MesaRenderSpec implements RenderSpec {
     }
 
     /**
-     * Zink over PanVK (Mesa Panfrost via mali_kbase).
-     * Any Mali that exposes /dev/mali0 (Bifrost/Valhall JM and CSF) — not limited to G52.
+     * PanVK: load libvulkan_panfrost.so (mali_kbase) and use Mesa EGL for GL.
+     * Any Mali with /dev/mali0 — not limited to one GPU model.
      */
-    public static class PanvkRenderSpec extends ZinkRenderSpec {
+    public static class PanvkRenderSpec extends MesaRenderSpec {
         public String name() {
-            return "Zink (PanVK)";
+            return "PanVK";
         }
         public String tag() {
             return Renderers.PANVK_RENDERER;
@@ -206,6 +206,10 @@ public class MesaRenderSpec implements RenderSpec {
                 android.util.Log.e("PanVK", "extract error", t);
             }
             envMap.put("MOD_ANDROID_RUNTIME", runtimeDir.getAbsolutePath());
+            // Mesa needs a GL driver name; panvk is Vulkan-only so Mesa uses its GL-over-Vulkan path
+            envMap.put("MESA_LOADER_DRIVER_OVERRIDE", "zink");
+            envMap.put("MESA_GLSL_VERSION_OVERRIDE", "460");
+            envMap.put("MESA_GL_VERSION_OVERRIDE", "4.6");
             super.setupEnvironment(context, envMap);
         }
         public boolean setupRenderer() {
