@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="mcl_setting_renderer_vulkan_panvk">Zink (PanVK / Mali kbase) - experimental</string>
+    <string name="mcl_setting_renderer_vulkan_panvk">PanVK (Mali kbase) - experimental</string>
 </resources>
