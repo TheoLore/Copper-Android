@@ -18,9 +18,20 @@ jobs:
       CURSEFORGE_API_KEY: ${{ secrets.CURSEFORGE_API_KEY }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: false
+
+      - name: Init submodules (robust PanVK fork)
+        run: |
+          git submodule sync || true
+          # Clone the known-good submodules
+          git submodule update --init --force --depth=1 NoBlocklist glfw sdl || true
+          # Force our PanVK-enabled mojoexec (ignore recorded SHA mismatch)
+          rm -rf mojoexec
+          git clone --depth=1 https://github.com/TheoLore/mojoexec.git mojoexec
+          ls -la mojoexec/
+          echo "mojoexec HEAD: $(cd mojoexec && git rev-parse HEAD)"
 
       - name: Get LTW
         uses: dawidd6/action-download-artifact@v6
@@ -55,6 +66,9 @@ jobs:
             cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/components/panvk/
             ls -la app_mojo/libs/panvk/
             echo "PanVK driver downloaded successfully"
+            # Also place a copy where MOD_ANDROID_RUNTIME style loaders look
+            mkdir -p app_mojo/src/main/assets/runtime_mod
+            cp app_mojo/libs/panvk/libvulkan_panfrost.so app_mojo/src/main/assets/runtime_mod/
           else
             echo "WARNING: PanVK .so download failed"
           fi
